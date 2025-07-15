@@ -23,3 +23,26 @@ services:
         environment:
           - PROJECT_PATH=/workspace/Mapperatorinator
           - WANDB_API_KEY=${WANDB_API_KEY}
+
+    api:
+        build: .
+        command: uvicorn api_server:app --host 0.0.0.0 --port 5005
+        container_name: mapperatorinator_api
+        volumes:
+        - .:/workspace/Mapperatorinator
+        - ../datasets:/workspace/datasets
+        network_mode: host
+        shm_size: 8gb
+        deploy:
+            resources:
+                reservations:
+                    devices:
+                        - driver: nvidia
+                          count: all
+                          capabilities:
+                              - gpu
+        environment:
+          - PROJECT_PATH=/workspace/Mapperatorinator
+          - WANDB_API_KEY=${WANDB_API_KEY}
+        ports:
+          - "5005:5005"
