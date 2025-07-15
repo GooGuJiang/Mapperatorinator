@@ -134,6 +134,28 @@ It uses a color-coded interface for clarity.
 It provides an advanced multi-select menu for choosing style descriptors using your arrow keys and spacebar.
 After you've answered all the questions, it will display the final command for your review.
 You can then confirm to execute it directly or cancel and copy the command for manual use.
+## API Server
+
+Mapperatorinator includes a small FastAPI server for programmatic generation. You can run it directly or via Docker Compose.
+
+```sh
+python api_server.py
+```
+
+To run inside Docker, use:
+
+```sh
+docker compose up api
+```
+
+### Endpoints
+
+- `POST /api/infer` – start a new inference job. Upload an audio file (and optionally a beatmap file) with `multipart/form-data`. Extra parameters can be provided as JSON in a `params` field. The response returns a `job_id`.
+- `GET /api/progress/<job_id>` – stream progress logs using Server-Sent Events.
+- `GET /api/download/<job_id>` – download the resulting `.osz` file once the job completes.
+
+The API calls the inference functions directly instead of launching the CLI. FastAPI automatically exposes interactive documentation at `/docs` once the server is running.
+
 
 ## Generation Tips
 
