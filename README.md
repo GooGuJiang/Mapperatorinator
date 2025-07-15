@@ -142,11 +142,13 @@ Mapperatorinator includes a small FastAPI server for programmatic generation. Yo
 python api_server.py
 ```
 
-To run inside Docker, use:
+To run inside Docker (using CPU inference), use:
 
 ```sh
 docker compose up api
 ```
+
+The compose file does not request GPU resources, so it runs entirely on the CPU.
 
 ### Endpoints
 

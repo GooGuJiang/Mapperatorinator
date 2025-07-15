@@ -3,14 +3,6 @@ services:
     mapperatorinator:
         stdin_open: true
         tty: true
-        deploy:
-            resources:
-                reservations:
-                    devices:
-                        - driver: nvidia
-                          count: all
-                          capabilities:
-                              - gpu
         volumes:
         - .:/workspace/Mapperatorinator
         - ../datasets:/workspace/datasets
@@ -33,14 +25,6 @@ services:
         - ../datasets:/workspace/datasets
         network_mode: host
         shm_size: 8gb
-        deploy:
-            resources:
-                reservations:
-                    devices:
-                        - driver: nvidia
-                          count: all
-                          capabilities:
-                              - gpu
         environment:
           - PROJECT_PATH=/workspace/Mapperatorinator
           - WANDB_API_KEY=${WANDB_API_KEY}
