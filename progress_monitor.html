@@ -242,30 +242,59 @@
                     ? window.location.origin           // 通过nginx代理
                     : 'http://127.0.0.1:8000';        // 直接访问API
                 
-                // 获取详细进度
-                const progressResponse = await fetch(`${baseUrl}/jobs/${currentJobId}/progress`);
+                // 首先尝试获取详细进度
+                let progressData = null;
                 
-                if (progressResponse.ok) {
-                    const progressData = await progressResponse.json();
-                    updateProgressDisplay(progressData);
-                } else {
-                    // 如果进度端点失败，尝试状态端点
-                    const statusResponse = await fetch(`${baseUrl}/jobs/${currentJobId}/status`);
-                    if (statusResponse.ok) {
-                        const statusData = await statusResponse.json();
-                        updateProgressDisplay({
-                            progress: statusData.progress || 0,
-                            stage: 'unknown',
-                            estimated: true,
-                            status: statusData.status,
-                            last_update: Date.now() / 1000
-                        });
+                try {
+                    const progressResponse = await fetch(`${baseUrl}/jobs/${currentJobId}/progress`);
+                    if (progressResponse.ok) {
+                        progressData = await progressResponse.json();
+                        updateProgressDisplay(progressData);
+                        return;
                     }
+                } catch (progressError) {
+                    console.log('进度端点不可用，尝试状态端点:', progressError.message);
+                }
+                
+                // 如果进度端点失败，尝试状态端点
+                const statusResponse = await fetch(`${baseUrl}/jobs/${currentJobId}/status`);
+                if (statusResponse.ok) {
+                    const statusData = await statusResponse.json();
+                    
+                    // 从状态数据构造进度信息
+                    const progressFromStatus = {
+                        progress: statusData.progress || 0,
+                        stage: extractStageFromMessage(statusData.message) || 'unknown',
+                        estimated: true,
+                        status: statusData.status,
+                        last_update: Date.now() / 1000
+                    };
+                    
+                    updateProgressDisplay(progressFromStatus);
+                } else {
+                    log(`❌ 无法获取任务状态: ${statusResponse.status} ${statusResponse.statusText}`);
                 }
                 
             } catch (error) {
                 log(`❌ 查询进度失败: ${error.message}`);
             }
+        }
+        
+        function extractStageFromMessage(message) {
+            if (!message) return null;
+            
+            const lowerMessage = message.toLowerCase();
+            
+            if (lowerMessage.includes('generating timing')) return 'generating_timing';
+            if (lowerMessage.includes('generating kiai')) return 'generating_kiai';
+            if (lowerMessage.includes('generating map')) return 'generating_map';
+            if (lowerMessage.includes('refining') || lowerMessage.includes('seq len')) return 'refining_positions';
+            if (lowerMessage.includes('completed') || lowerMessage.includes('完成')) return 'completed';
+            if (lowerMessage.includes('loading') || lowerMessage.includes('加载')) return 'loading';
+            if (lowerMessage.includes('processing') || lowerMessage.includes('处理')) return 'processing';
+            if (lowerMessage.includes('saving') || lowerMessage.includes('保存')) return 'saving';
+            
+            return 'running';
         }
         
         function updateProgressDisplay(data) {
