@@ -8,3 +8,4 @@ tensorboard_logs
 test
 test_inference.py
 audio_storage/*
+.env

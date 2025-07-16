@@ -1,5 +1,21 @@
 name: mapperatorinator
 services:
+    # Redis缓存服务
+    redis:
+        image: redis:7-alpine
+        container_name: mapperatorinator_redis
+        restart: unless-stopped
+        ports:
+          - "6379:6379"
+        volumes:
+          - redis_data:/data
+        command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+        healthcheck:
+          test: ["CMD", "redis-cli", "ping"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+
     mapperatorinator:
         stdin_open: true
         tty: true
@@ -23,10 +39,15 @@ services:
         environment:
           - PROJECT_PATH=/workspace/Mapperatorinator
           - WANDB_API_KEY=${WANDB_API_KEY}
+          - REDIS_HOST=redis
+          - REDIS_PORT=6379
+        depends_on:
+          redis:
+            condition: service_healthy
 
     api:
         build: .
-        command: uvicorn api_server:app --host 0.0.0.0 --port 5005
+        command: uvicorn api_v2:app --host 0.0.0.0 --port 5005
         container_name: mapperatorinator_api
         volumes:
         - .:/workspace/Mapperatorinator
@@ -44,5 +65,13 @@ services:
         environment:
           - PROJECT_PATH=/workspace/Mapperatorinator
           - WANDB_API_KEY=${WANDB_API_KEY}
+          - REDIS_HOST=redis
+          - REDIS_PORT=6379
         ports:
           - "5005:5005"
+        depends_on:
+          redis:
+            condition: service_healthy
+
+volumes:
+  redis_data:

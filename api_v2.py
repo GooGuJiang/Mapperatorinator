@@ -24,6 +24,13 @@ try:
     from sse_starlette.sse import EventSourceResponse
     import redis
     import redis.exceptions
+    # 可选：加载.env文件
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()  # 加载.env文件到环境变量
+        print("📄 已加载.env文件")
+    except ImportError:
+        print("💡 提示：安装python-dotenv可自动加载.env文件: pip install python-dotenv")
 except ImportError as e:
     print(f"缺少必要的包，请安装: pip install fastapi uvicorn sse-starlette redis")
     print(f"导入错误: {e}")
@@ -37,6 +44,25 @@ process_outputs: Dict[str, List[str]] = {}
 job_metadata: Dict[str, Dict] = {}
 job_progress: Dict[str, Dict] = {}  # 新增进度追踪
 process_lock = threading.Lock()
+
+# Redis连接 - 使用db1
+redis_client = None
+try:
+    redis_client = redis.Redis(
+        host=os.getenv('REDIS_HOST', 'localhost'),
+        port=int(os.getenv('REDIS_PORT', 6379)),
+        db=1,  # 使用db1
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+        retry_on_timeout=True
+    )
+    # 测试连接
+    redis_client.ping()
+    print("✅ Redis连接成功 (db=1)")
+except (redis.exceptions.RedisError, ConnectionError, Exception) as e:
+    print(f"⚠️ Redis连接失败，将使用内存缓存: {e}")
+    redis_client = None
 
 # 固定目录
 AUDIO_STORAGE = Path("audio_storage")  # 音频存储目录
@@ -60,6 +86,91 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Redis缓存辅助函数
+def cache_set(key: str, value: Any, expire: int = 3600):
+    """设置缓存，默认1小时过期"""
+    if redis_client:
+        try:
+            redis_client.setex(key, expire, json.dumps(value))
+            return True
+        except redis.exceptions.RedisError as e:
+            print(f"Redis设置失败: {e}")
+    return False
+
+def cache_get(key: str) -> Optional[Any]:
+    """获取缓存"""
+    if redis_client:
+        try:
+            data = redis_client.get(key)
+            if data and isinstance(data, (str, bytes)):
+                return json.loads(data)
+            return None
+        except (redis.exceptions.RedisError, json.JSONDecodeError) as e:
+            print(f"Redis获取失败: {e}")
+    return None
+
+def cache_delete(key: str):
+    """删除缓存"""
+    if redis_client:
+        try:
+            redis_client.delete(key)
+            return True
+        except redis.exceptions.RedisError as e:
+            print(f"Redis删除失败: {e}")
+    return False
+
+def cache_exists(key: str) -> bool:
+    """检查缓存是否存在"""
+    if redis_client:
+        try:
+            exists_result = redis_client.exists(key)
+            # 处理不同类型的返回值
+            if isinstance(exists_result, int):
+                return exists_result > 0
+            else:
+                return bool(exists_result)
+        except redis.exceptions.RedisError as e:
+            print(f"Redis检查失败: {e}")
+    return False
+
+def cache_job_progress(job_id: str):
+    """缓存任务进度信息"""
+    progress_info = job_progress.get(job_id)
+    if progress_info:
+        cache_set(f"job_progress:{job_id}", progress_info, 7200)  # 2小时过期
+
+def get_cached_job_progress(job_id: str) -> Optional[Dict]:
+    """获取缓存的任务进度"""
+    return cache_get(f"job_progress:{job_id}")
+
+def cache_job_metadata(job_id: str):
+    """缓存任务元数据"""
+    metadata = job_metadata.get(job_id)
+    if metadata:
+        # 移除不能序列化的对象
+        serializable_metadata = {k: v for k, v in metadata.items() if k != 'process'}
+        cache_set(f"job_metadata:{job_id}", serializable_metadata, 7200)
+
+def get_cached_job_metadata(job_id: str) -> Optional[Dict]:
+    """获取缓存的任务元数据"""
+    return cache_get(f"job_metadata:{job_id}")
+
+def cache_output_files(job_id: str, files: List[str]):
+    """缓存输出文件列表"""
+    cache_set(f"output_files:{job_id}", files, 3600)  # 1小时过期
+
+def get_cached_output_files(job_id: str) -> Optional[List[str]]:
+    """获取缓存的输出文件列表"""
+    return cache_get(f"output_files:{job_id}")
+
+def cache_model_config(config_name: str, config_data: Dict):
+    """缓存模型配置"""
+    cache_set(f"model_config:{config_name}", config_data, 86400)  # 24小时过期
+
+def get_cached_model_config(config_name: str) -> Optional[Dict]:
+    """获取缓存的模型配置"""
+    return cache_get(f"model_config:{config_name}")
 
 # 响应模型
 class ProcessResponse(BaseModel):
@@ -248,15 +359,20 @@ def estimate_progress_from_stage(output_line: str, current_progress: float) -> O
     return None
 
 def update_job_progress(job_id: str, output_line: str):
-    """更新任务进度 - 参考web-ui.py的进度解析逻辑"""
+    """更新任务进度 - 参考web-ui.py的进度解析逻辑，支持Redis缓存"""
     with process_lock:
         if job_id not in job_progress:
-            job_progress[job_id] = {
-                'progress': 0.0,
-                'stage': 'initializing',
-                'last_update': time.time(),
-                'estimated': False
-            }
+            # 尝试从缓存加载进度信息
+            cached_progress = get_cached_job_progress(job_id)
+            if cached_progress:
+                job_progress[job_id] = cached_progress
+            else:
+                job_progress[job_id] = {
+                    'progress': 0.0,
+                    'stage': 'initializing',
+                    'last_update': time.time(),
+                    'estimated': False
+                }
         
         current_progress = job_progress[job_id]['progress']
         current_stage = job_progress[job_id]['stage']
@@ -273,6 +389,8 @@ def update_job_progress(job_id: str, output_line: str):
             stage_info = estimate_progress_from_stage(output_line, parsed_progress)
             if stage_info:
                 job_progress[job_id]['stage'] = stage_info['stage']
+            # 缓存更新的进度
+            cache_job_progress(job_id)
             return
         
         # 如果没有精确进度，根据阶段估算
@@ -284,6 +402,8 @@ def update_job_progress(job_id: str, output_line: str):
                 'last_update': time.time(),
                 'estimated': stage_info['estimated']
             })
+            # 缓存更新的进度
+            cache_job_progress(job_id)
             return
         
         # 如果都没有，根据时间缓慢增加进度
@@ -322,6 +442,8 @@ def update_job_progress(job_id: str, output_line: str):
                     'last_update': time.time(),
                     'estimated': True
                 })
+                # 缓存更新的进度
+                cache_job_progress(job_id)
 
 def parse_optional_int(value: str) -> Optional[int]:
     """解析可选整数参数"""
@@ -435,17 +557,25 @@ def build_command(job_id: str, audio_path: str, params: dict) -> List[str]:
     return cmd
 
 def find_output_files(job_id: str) -> List[str]:
-    """查找输出文件"""
+    """查找输出文件，优先使用缓存"""
+    # 先尝试从缓存获取
+    cached_files = get_cached_output_files(job_id)
+    
     job_output_dir = OUTPUTS / job_id
     if not job_output_dir.exists():
-        return []
+        return cached_files or []
     
     files = []
     for file_path in job_output_dir.iterdir():
         if file_path.is_file():
             files.append(file_path.name)
     
-    return files
+    # 缓存文件列表
+    if files:
+        cache_output_files(job_id, files)
+    
+    # 如果目录为空但缓存有数据，返回缓存数据
+    return files if files else (cached_files or [])
 
 @app.get("/")
 async def root():
@@ -585,6 +715,10 @@ async def process_audio(
                 "estimated": False
             }
             
+            # 缓存初始任务信息
+            cache_job_metadata(job_id)
+            cache_job_progress(job_id)
+            
             # 启动后台线程监控进程输出
             def monitor_process_output(job_id, process):
                 """后台监控进程输出"""
@@ -612,12 +746,15 @@ async def process_audio(
                             else:
                                 job_progress[job_id]['stage'] = 'failed'
                             job_progress[job_id]['completed_at'] = time.time()
+                            # 缓存最终进度状态
+                            cache_job_progress(job_id)
                 
                 except Exception as e:
                     print(f"监控进程输出错误 {job_id}: {e}")
                     with process_lock:
                         if job_id in job_progress:
                             job_progress[job_id]['stage'] = 'error'
+                            cache_job_progress(job_id)
             
             # 启动监控线程
             monitor_thread = threading.Thread(
@@ -643,11 +780,22 @@ async def process_audio(
 
 @app.get("/jobs/{job_id}/status", response_model=JobStatus)
 async def get_status(job_id: str):
-    """获取任务状态"""
+    """获取任务状态，优先使用缓存"""
     with process_lock:
         # 检查任务是否存在（包括已完成的任务）
         if job_id not in active_processes and job_id not in job_progress:
-            raise HTTPException(status_code=404, detail="任务不存在")
+            # 尝试从缓存加载
+            cached_progress = get_cached_job_progress(job_id)
+            cached_metadata = get_cached_job_metadata(job_id)
+            
+            if not cached_progress and not cached_metadata:
+                raise HTTPException(status_code=404, detail="任务不存在")
+            
+            # 从缓存恢复数据
+            if cached_progress:
+                job_progress[job_id] = cached_progress
+            if cached_metadata:
+                job_metadata[job_id] = cached_metadata
         
         metadata = job_metadata.get(job_id, {})
         progress_info = job_progress.get(job_id, {})
@@ -676,6 +824,7 @@ async def get_status(job_id: str):
                 with process_lock:
                     if job_id in job_progress:
                         job_progress[job_id]['progress'] = 100.0
+                        cache_job_progress(job_id)
                 
                 return JobStatus(
                     job_id=job_id,
@@ -724,11 +873,17 @@ async def get_status(job_id: str):
 
 @app.get("/jobs/{job_id}/progress", response_model=ProgressResponse)
 async def get_progress(job_id: str):
-    """获取任务详细进度信息"""
+    """获取任务详细进度信息，优先使用缓存"""
     with process_lock:
         # 检查任务是否存在
         if job_id not in active_processes and job_id not in job_progress:
-            raise HTTPException(status_code=404, detail="任务不存在")
+            # 尝试从缓存加载
+            cached_progress = get_cached_job_progress(job_id)
+            if not cached_progress:
+                raise HTTPException(status_code=404, detail="任务不存在")
+            
+            # 从缓存恢复进度数据
+            job_progress[job_id] = cached_progress
         
         progress_info = job_progress.get(job_id, {})
         
@@ -972,6 +1127,38 @@ def cleanup_finished_jobs():
         for job_id in old_progress_jobs:
             print(f"清理旧进度信息 {job_id}")
             del job_progress[job_id]
+            # 清理Redis缓存
+            cache_delete(f"job_progress:{job_id}")
+            cache_delete(f"job_metadata:{job_id}")
+            cache_delete(f"output_files:{job_id}")
+
+def cleanup_redis_cache():
+    """清理过期的Redis缓存"""
+    if not redis_client:
+        return
+    
+    try:
+        # 获取所有job相关的键
+        job_keys = []
+        for pattern in ["job_progress:*", "job_metadata:*", "output_files:*"]:
+            keys = redis_client.keys(pattern)
+            if keys and isinstance(keys, (list, tuple)):
+                job_keys.extend(keys)
+        
+        # 检查并删除超过24小时的缓存
+        current_time = time.time()
+        for key in job_keys:
+            try:
+                ttl = redis_client.ttl(key)
+                # 如果键没有过期时间或者已经过期很久，删除它
+                if isinstance(ttl, int) and (ttl == -1 or ttl < -86400):  # 超过24小时
+                    redis_client.delete(key)
+                    print(f"删除过期缓存键: {key}")
+            except redis.exceptions.RedisError:
+                continue
+                
+    except redis.exceptions.RedisError as e:
+        print(f"清理Redis缓存失败: {e}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -980,11 +1167,21 @@ async def startup_event():
     print(f"📁 音频存储目录: {AUDIO_STORAGE.absolute()}")
     print(f"📂 输出目录: {OUTPUTS.absolute()}")
     
+    if redis_client:
+        print("✅ Redis缓存已启用 (db=1)")
+    else:
+        print("⚠️ Redis缓存未启用，使用内存缓存")
+    
     # 启动后台清理任务
     async def periodic_cleanup():
         while True:
             await asyncio.sleep(300)  # 每5分钟清理一次
             cleanup_finished_jobs()
+            
+            # 每小时清理一次Redis缓存
+            import time
+            if int(time.time()) % 3600 < 300:  # 在整点后5分钟内执行
+                cleanup_redis_cache()
     
     asyncio.create_task(periodic_cleanup())
 
@@ -1000,17 +1197,79 @@ async def shutdown_event():
                 print(f"终止任务 {job_id}")
                 process.terminate()
 
+@app.get("/debug/redis")
+async def redis_status():
+    """Redis状态和缓存信息"""
+    if not redis_client:
+        return {
+            "status": "disabled",
+            "message": "Redis未启用",
+            "cache_stats": None
+        }
+    
+    try:
+        # 测试连接
+        redis_client.ping()
+        
+        # 获取Redis信息
+        info = redis_client.info()
+        redis_info = {}
+        if isinstance(info, dict):
+            redis_info = {
+                "version": info.get("redis_version"),
+                "used_memory": info.get("used_memory_human"),
+                "connected_clients": info.get("connected_clients"),
+                "total_commands_processed": info.get("total_commands_processed")
+            }
+        
+        # 获取缓存键统计
+        cache_stats = {}
+        for prefix in ["job_progress", "job_metadata", "output_files", "model_config"]:
+            pattern = f"{prefix}:*"
+            keys = redis_client.keys(pattern)
+            if isinstance(keys, (list, tuple)):
+                cache_stats[prefix] = len(keys)
+            else:
+                cache_stats[prefix] = 0
+        
+        return {
+            "status": "connected",
+            "database": 1,
+            "redis_info": redis_info,
+            "cache_stats": cache_stats
+        }
+        
+    except redis.exceptions.RedisError as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "cache_stats": None
+        }
+
 @app.get("/jobs/{job_id}/debug")
 async def debug_job_output(job_id: str):
-    """调试端点：查看任务的最近输出行"""
+    """调试端点：查看任务的最近输出行和缓存状态"""
     with process_lock:
         if job_id not in active_processes and job_id not in process_outputs:
-            raise HTTPException(status_code=404, detail="任务不存在")
+            # 检查缓存中是否有数据
+            cached_progress = get_cached_job_progress(job_id)
+            cached_metadata = get_cached_job_metadata(job_id)
+            if not cached_progress and not cached_metadata:
+                raise HTTPException(status_code=404, detail="任务不存在")
         
         # 获取最近的输出行
         recent_outputs = process_outputs.get(job_id, [])[-20:]  # 最近20行
         progress_info = job_progress.get(job_id, {})
         metadata = job_metadata.get(job_id, {})
+        
+        # 获取缓存状态
+        cache_status = {}
+        if redis_client:
+            cache_status = {
+                "progress_cached": cache_exists(f"job_progress:{job_id}"),
+                "metadata_cached": cache_exists(f"job_metadata:{job_id}"),
+                "files_cached": cache_exists(f"output_files:{job_id}")
+            }
         
         return {
             "job_id": job_id,
@@ -1019,7 +1278,8 @@ async def debug_job_output(job_id: str):
             "total_output_lines": len(process_outputs.get(job_id, [])),
             "start_time": metadata.get("start_time"),
             "elapsed_time": time.time() - metadata.get("start_time", time.time()),
-            "is_active": job_id in active_processes
+            "is_active": job_id in active_processes,
+            "cache_status": cache_status
         }
 
 if __name__ == "__main__":

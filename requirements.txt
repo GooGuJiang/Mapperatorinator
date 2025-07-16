@@ -20,3 +20,5 @@ fastapi
 uvicorn
 sse-starlette
 audioop-lts; python_version>='3.13'
+redis
+python-dotenv
