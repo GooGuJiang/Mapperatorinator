@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapperatorinator API 测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .progress {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            display: none;
+        }
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .success {
+            color: #155724;
+            background-color: #d4edda;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .fieldset {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .fieldset legend {
+            font-weight: bold;
+            padding: 0 10px;
+        }
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        .output {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Mapperatorinator API 测试</h1>
+        
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="fieldset">
+                <legend>基本设置</legend>
+                
+                <div class="form-group">
+                    <label for="audio_file">音频文件 *</label>
+                    <input type="file" id="audio_file" name="audio_file" accept=".mp3,.wav,.ogg,.m4a,.flac" required>
+                </div>
+                
+                <div class="two-column">
+                    <div class="form-group">
+                        <label for="model">模型</label>
+                        <select id="model" name="model">
+                            <option value="v30" selected>V30 (推荐)</option>
+                            <option value="v31">V31</option>
+                            <option value="default">默认</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="gamemode">游戏模式</label>
+                        <select id="gamemode" name="gamemode">
+                            <option value="0" selected>osu!standard</option>
+                            <option value="1">osu!taiko</option>
+                            <option value="2">osu!catch</option>
+                            <option value="3">osu!mania</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="difficulty">目标难度 (星级)</label>
+                    <input type="number" id="difficulty" name="difficulty" step="0.1" min="0" max="10" value="5.0">
+                </div>
+            </div>
+            
+            <div class="fieldset">
+                <legend>难度设置</legend>
+                
+                <div class="two-column">
+                    <div class="form-group">
+                        <label for="hp_drain_rate">HP消耗率 (HP)</label>
+                        <input type="number" id="hp_drain_rate" name="hp_drain_rate" step="0.1" min="0" max="10" value="5.0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="circle_size">圆圈大小 (CS)</label>
+                        <input type="number" id="circle_size" name="circle_size" step="0.1" min="0" max="10" value="4.0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="overall_difficulty">整体难度 (OD)</label>
+                        <input type="number" id="overall_difficulty" name="overall_difficulty" step="0.1" min="0" max="10" value="8.0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="approach_rate">接近速度 (AR)</label>
+                        <input type="number" id="approach_rate" name="approach_rate" step="0.1" min="0" max="10" value="9.0">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="fieldset">
+                <legend>高级设置</legend>
+                
+                <div class="two-column">
+                    <div class="form-group">
+                        <label for="mapper_id">Mapper ID (可选)</label>
+                        <input type="text" id="mapper_id" name="mapper_id" placeholder="留空表示不指定">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="seed">随机种子 (可选)</label>
+                        <input type="text" id="seed" name="seed" placeholder="留空表示随机">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="cfg_scale">CFG引导强度</label>
+                        <input type="number" id="cfg_scale" name="cfg_scale" step="0.1" min="0" value="1.0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="temperature">采样温度</label>
+                        <input type="number" id="temperature" name="temperature" step="0.01" min="0" max="1" value="0.9">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="descriptors">风格描述符 (JSON格式，可选)</label>
+                    <input type="text" id="descriptors" name="descriptors" placeholder='例: ["流行", "快节奏"]'>
+                </div>
+            </div>
+            
+            <div class="fieldset">
+                <legend>选项</legend>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="export_osz" name="export_osz" checked> 导出.osz文件
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="super_timing" name="super_timing"> 使用超级时间生成
+                    </label>
+                </div>
+            </div>
+            
+            <button type="submit" id="submitBtn">🚀 开始生成</button>
+            <button type="button" id="cancelBtn" disabled>❌ 取消</button>
+        </form>
+        
+        <div id="progress" class="progress">
+            <div id="progressText">准备中...</div>
+            <div id="output" class="output" style="display: none;"></div>
+        </div>
+        
+        <div id="result" style="display: none;">
+            <h3>✅ 生成完成</h3>
+            <p>您的beatmap已经生成完成！</p>
+            <button type="button" id="downloadBtn">📥 下载结果</button>
+        </div>
+    </div>
+
+    <script>
+        let currentJobId = null;
+        let eventSource = null;
+
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            const form = e.target;
+            
+            // 添加所有表单字段
+            for (let element of form.elements) {
+                if (element.name && element.type !== 'submit') {
+                    if (element.type === 'checkbox') {
+                        formData.append(element.name, element.checked);
+                    } else if (element.type === 'file') {
+                        if (element.files[0]) {
+                            formData.append(element.name, element.files[0]);
+                        }
+                    } else {
+                        formData.append(element.name, element.value);
+                    }
+                }
+            }
+            
+            try {
+                document.getElementById('submitBtn').disabled = true;
+                document.getElementById('progress').style.display = 'block';
+                document.getElementById('progressText').textContent = '上传中...';
+                
+                const response = await fetch('/api/process', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(JSON.stringify(errorData, null, 2));
+                }
+                
+                const result = await response.json();
+                currentJobId = result.job_id;
+                
+                document.getElementById('progressText').textContent = `任务已启动: ${currentJobId}`;
+                document.getElementById('cancelBtn').disabled = false;
+                
+                // 开始监听进度
+                startProgressStream(currentJobId);
+                
+            } catch (error) {
+                showError('上传失败: ' + error.message);
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('progress').style.display = 'none';
+            }
+        });
+
+        function startProgressStream(jobId) {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            eventSource = new EventSource(`/api/jobs/${jobId}/stream`);
+            document.getElementById('output').style.display = 'block';
+            document.getElementById('output').textContent = '';
+            
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                const output = document.getElementById('output');
+                
+                if (data.event === 'output') {
+                    output.textContent += data.data + '\n';
+                    output.scrollTop = output.scrollHeight;
+                } else if (data.event === 'completed') {
+                    document.getElementById('progressText').textContent = '✅ 生成完成!';
+                    document.getElementById('result').style.display = 'block';
+                    resetForm();
+                    eventSource.close();
+                } else if (data.event === 'failed' || data.event === 'error') {
+                    showError('生成失败: ' + data.data);
+                    resetForm();
+                    eventSource.close();
+                }
+            };
+            
+            eventSource.onerror = function() {
+                showError('连接中断');
+                resetForm();
+            };
+        }
+
+        document.getElementById('cancelBtn').addEventListener('click', async function() {
+            if (currentJobId) {
+                try {
+                    await fetch(`/api/jobs/${currentJobId}/cancel`, { method: 'POST' });
+                    showSuccess('任务已取消');
+                    resetForm();
+                } catch (error) {
+                    showError('取消失败: ' + error.message);
+                }
+            }
+        });
+
+        document.getElementById('downloadBtn').addEventListener('click', async function() {
+            if (currentJobId) {
+                window.open(`/api/jobs/${currentJobId}/download`);
+            }
+        });
+
+        function resetForm() {
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('cancelBtn').disabled = true;
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            document.querySelector('.container').appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 10000);
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success';
+            successDiv.textContent = message;
+            document.querySelector('.container').appendChild(successDiv);
+            setTimeout(() => successDiv.remove(), 5000);
+        }
+
+        // 代理API请求到实际的API服务器
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options) {
+            if (url.startsWith('/api/')) {
+                url = 'http://127.0.0.1:8000' + url.substring(4);
+            }
+            return originalFetch(url, options);
+        };
+    </script>
+</body>
+</html>

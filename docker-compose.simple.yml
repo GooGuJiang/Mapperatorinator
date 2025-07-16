@@ -1,0 +1,50 @@
+# 简化版本 - 仅API服务
+version: '3.8'
+
+services:
+  mapperatorinator-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    container_name: mapperatorinator_api_cpu
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载项目代码（开发时使用）
+      - .:/workspace/Mapperatorinator
+      # 数据持久化
+      - audio_storage:/workspace/Mapperatorinator/audio_storage
+      - outputs:/workspace/Mapperatorinator/outputs
+      - logs:/workspace/Mapperatorinator/logs
+    environment:
+      - PROJECT_PATH=/workspace/Mapperatorinator
+      - PYTHONPATH=/workspace/Mapperatorinator
+      # CPU优化设置
+      - OMP_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
+      - TORCH_NUM_THREADS=4
+      # 禁用GPU相关警告
+      - CUDA_VISIBLE_DEVICES=""
+    restart: unless-stopped
+    working_dir: /workspace/Mapperatorinator
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '2.0'
+    # 健康检查
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  audio_storage:
+  outputs:
+  logs:

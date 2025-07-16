@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>进度监控测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background-color: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            border-radius: 15px;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .status-card {
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .job-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .info-item {
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .info-label {
+            font-weight: bold;
+            color: #555;
+        }
+        .info-value {
+            margin-top: 5px;
+            font-family: monospace;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #1e1e1e;
+            color: #ffffff;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Mapperatorinator 进度监控</h1>
+        
+        <div>
+            <label for="jobId">任务ID:</label>
+            <input type="text" id="jobId" placeholder="输入任务ID或上传文件开始新任务" style="width: 300px; padding: 8px; margin: 0 10px;">
+            <button onclick="startMonitoring()">开始监控</button>
+            <button onclick="stopMonitoring()" id="stopBtn" disabled>停止监控</button>
+        </div>
+        
+        <div style="margin: 20px 0;">
+            <input type="file" id="audioFile" accept=".mp3,.wav,.ogg,.m4a,.flac">
+            <button onclick="startNewJob()" id="startBtn">上传并开始新任务</button>
+        </div>
+        
+        <div id="progressSection" style="display: none;">
+            <h3>处理进度</h3>
+            
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+            </div>
+            
+            <div class="status-card">
+                <strong>状态:</strong> <span id="statusText">等待中...</span>
+            </div>
+            
+            <div class="job-info">
+                <div class="info-item">
+                    <div class="info-label">任务ID</div>
+                    <div class="info-value" id="currentJobId">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">当前阶段</div>
+                    <div class="info-value" id="currentStage">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">进度类型</div>
+                    <div class="info-value" id="progressType">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">最后更新</div>
+                    <div class="info-value" id="lastUpdate">-</div>
+                </div>
+            </div>
+            
+            <div id="downloadSection" style="display: none;">
+                <button onclick="downloadResult()">📥 下载结果</button>
+                <button onclick="viewFiles()">📁 查看文件列表</button>
+            </div>
+        </div>
+        
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        let monitoringInterval = null;
+        let currentJobId = null;
+        
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        async function startNewJob() {
+            const fileInput = document.getElementById('audioFile');
+            if (!fileInput.files[0]) {
+                alert('请选择音频文件');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('audio_file', fileInput.files[0]);
+            formData.append('model', 'v30');
+            formData.append('gamemode', '0');
+            formData.append('difficulty', '5.0');
+            formData.append('export_osz', 'true');
+            
+            try {
+                document.getElementById('startBtn').disabled = true;
+                log('🚀 启动新任务...');
+                
+                // 自动检测API URL
+                const apiUrl = window.location.origin.includes('localhost') && !window.location.origin.includes(':8000') 
+                    ? `${window.location.origin}/process`  // 通过nginx代理
+                    : 'http://127.0.0.1:8000/process';    // 直接访问API
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                currentJobId = result.job_id;
+                document.getElementById('jobId').value = currentJobId;
+                
+                log(`✅ 任务已启动: ${currentJobId}`);
+                startMonitoring();
+                
+            } catch (error) {
+                log(`❌ 启动任务失败: ${error.message}`);
+                document.getElementById('startBtn').disabled = false;
+            }
+        }
+        
+        function startMonitoring() {
+            const jobId = document.getElementById('jobId').value.trim();
+            if (!jobId) {
+                alert('请输入任务ID');
+                return;
+            }
+            
+            currentJobId = jobId;
+            document.getElementById('currentJobId').textContent = jobId;
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('stopBtn').disabled = false;
+            
+            log(`📊 开始监控任务: ${jobId}`);
+            
+            // 立即查询一次
+            updateProgress();
+            
+            // 设置定期查询
+            monitoringInterval = setInterval(updateProgress, 2000);
+        }
+        
+        function stopMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+            }
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('startBtn').disabled = false;
+            log('⏹️ 停止监控');
+        }
+        
+        async function updateProgress() {
+            if (!currentJobId) return;
+            
+            try {
+                // 自动检测API URL
+                const baseUrl = window.location.origin.includes('localhost') && !window.location.origin.includes(':8000') 
+                    ? window.location.origin           // 通过nginx代理
+                    : 'http://127.0.0.1:8000';        // 直接访问API
+                
+                // 获取详细进度
+                const progressResponse = await fetch(`${baseUrl}/jobs/${currentJobId}/progress`);
+                
+                if (progressResponse.ok) {
+                    const progressData = await progressResponse.json();
+                    updateProgressDisplay(progressData);
+                } else {
+                    // 如果进度端点失败，尝试状态端点
+                    const statusResponse = await fetch(`${baseUrl}/jobs/${currentJobId}/status`);
+                    if (statusResponse.ok) {
+                        const statusData = await statusResponse.json();
+                        updateProgressDisplay({
+                            progress: statusData.progress || 0,
+                            stage: 'unknown',
+                            estimated: true,
+                            status: statusData.status,
+                            last_update: Date.now() / 1000
+                        });
+                    }
+                }
+                
+            } catch (error) {
+                log(`❌ 查询进度失败: ${error.message}`);
+            }
+        }
+        
+        function updateProgressDisplay(data) {
+            const progress = Math.round(data.progress || 0);
+            const status = data.status || 'unknown';
+            const stage = data.stage || 'unknown';
+            const estimated = data.estimated ? '(估算)' : '(精确)';
+            
+            // 更新进度条
+            const progressFill = document.getElementById('progressFill');
+            progressFill.style.width = `${progress}%`;
+            progressFill.textContent = `${progress}%`;
+            
+            // 更新状态
+            document.getElementById('statusText').textContent = status;
+            document.getElementById('currentStage').textContent = stage;
+            document.getElementById('progressType').textContent = estimated;
+            document.getElementById('lastUpdate').textContent = new Date(data.last_update * 1000).toLocaleTimeString();
+            
+            // 检查是否完成
+            if (status === 'completed') {
+                log(`✅ 任务完成! 进度: ${progress}%`);
+                document.getElementById('downloadSection').style.display = 'block';
+                stopMonitoring();
+            } else if (status === 'failed') {
+                log(`❌ 任务失败! 进度: ${progress}%`);
+                stopMonitoring();
+            } else {
+                log(`📈 进度更新: ${progress}% - ${stage} ${estimated}`);
+            }
+        }
+        
+        async function downloadResult() {
+            if (!currentJobId) return;
+            
+            try {
+                const baseUrl = window.location.origin.includes('localhost') && !window.location.origin.includes(':8000') 
+                    ? window.location.origin           // 通过nginx代理
+                    : 'http://127.0.0.1:8000';        // 直接访问API
+                
+                const response = await fetch(`${baseUrl}/jobs/${currentJobId}/download`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${currentJobId}_result.osz`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    log('📥 下载已开始');
+                } else {
+                    log('❌ 下载失败');
+                }
+            } catch (error) {
+                log(`❌ 下载错误: ${error.message}`);
+            }
+        }
+        
+        async function viewFiles() {
+            if (!currentJobId) return;
+            
+            try {
+                const baseUrl = window.location.origin.includes('localhost') && !window.location.origin.includes(':8000') 
+                    ? window.location.origin           // 通过nginx代理
+                    : 'http://127.0.0.1:8000';        // 直接访问API
+                
+                const response = await fetch(`${baseUrl}/jobs/${currentJobId}/files`);
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`📁 输出文件 (${data.files.length} 个):`);
+                    data.files.forEach(file => {
+                        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                        log(`  📄 ${file.name} (${sizeMB} MB)`);
+                    });
+                } else {
+                    log('❌ 获取文件列表失败');
+                }
+            } catch (error) {
+                log(`❌ 查询文件错误: ${error.message}`);
+            }
+        }
+        
+        // 页面加载时的初始化
+        log('🎮 Mapperatorinator 进度监控页面已加载');
+        log('💡 提示: 上传音频文件开始新任务，或输入现有任务ID进行监控');
+    </script>
+</body>
+</html>

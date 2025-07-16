@@ -1,0 +1,45 @@
+# CPU-only Dockerfile for Mapperatorinator API
+FROM python:3.11-slim
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    git \
+    ffmpeg \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
+WORKDIR /workspace/Mapperatorinator
+
+# 复制requirements文件
+COPY requirements.txt .
+
+# 安装Python依赖 (CPU版本)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
+
+# 安装额外的API依赖
+RUN pip install --no-cache-dir fastapi uvicorn sse-starlette python-multipart
+
+# 安装slider库 (如果需要)
+RUN pip install --no-cache-dir 'git+https://github.com/OliBomby/slider.git@gedagedigedagedaoh#egg=slider'
+
+# 复制项目文件
+COPY . .
+
+# 创建必要的目录
+RUN mkdir -p audio_storage outputs logs
+
+# 设置环境变量
+ENV PYTHONPATH=/workspace/Mapperatorinator
+ENV PROJECT_PATH=/workspace/Mapperatorinator
+
+# 修改bashrc提示符
+RUN echo 'if [ -f /.dockerenv ]; then export PS1="(docker-cpu) $PS1"; fi' >> /root/.bashrc
+
+# 暴露API端口
+EXPOSE 8000
+
+# 默认命令
+CMD ["python", "api_v2.py", "--host", "0.0.0.0", "--port", "8000"]
